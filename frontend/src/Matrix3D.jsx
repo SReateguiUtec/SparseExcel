@@ -1,0 +1,293 @@
+import React, { useRef, useMemo, useState } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
+import { OrbitControls, Text, Float } from '@react-three/drei';
+import { EffectComposer, Bloom, ChromaticAberration } from '@react-three/postprocessing';
+import { BlendFunction } from 'postprocessing';
+import * as THREE from 'three';
+import { RotateCcw } from 'lucide-react';
+
+const NODE_WIDTH = 3.2;
+const NODE_HEIGHT = 1.8;
+const CELL_W = NODE_WIDTH / 4;
+const HALF_H = NODE_HEIGHT / 2;
+const SPACING = 5.5;
+const NODE_DEPTH = 0.35;
+
+const NODE_COLOR   = '#00f3ff'; // cyan  — nodos
+const ROW_COLOR    = '#ef4444'; // rojo  — flechas horizontales
+const COL_COLOR    = '#22c55e'; // verde — flechas verticales
+const HEADER_COLOR = '#475569'; // gris pizarra — cabeceras de fila y columna
+
+// Glowing tube arrow between two points
+function GlowArrow({ start, end, color }) {
+  const curve = useMemo(() => {
+    const s = new THREE.Vector3(...start);
+    const e = new THREE.Vector3(...end);
+    return new THREE.LineCurve3(s, e);
+  }, [start, end]);
+
+  const tubeGeo = useMemo(() => new THREE.TubeGeometry(curve, 1, 0.045, 6, false), [curve]);
+  const direction = useMemo(() => new THREE.Vector3(...end).sub(new THREE.Vector3(...start)).normalize(), [start, end]);
+  const quaternion = useMemo(() => new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction), [direction]);
+  const arrowPos = useMemo(() => new THREE.Vector3(...end).sub(direction.clone().multiplyScalar(0.18)), [end, direction]);
+
+  return (
+    <group>
+      <mesh geometry={tubeGeo}>
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={3} transparent opacity={0.85} />
+      </mesh>
+      <mesh position={arrowPos} quaternion={quaternion}>
+        <coneGeometry args={[0.1, 0.28, 8]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={4} />
+      </mesh>
+    </group>
+  );
+}
+
+// Animated node that scales in on mount
+function AnimatedNode({ position, value, r, c, color }) {
+  const meshRef = useRef();
+  const [scale, setScale] = useState(0.01);
+  const targetScale = useRef(1);
+
+  useFrame((_, delta) => {
+    if (meshRef.current) {
+      const current = meshRef.current.scale.x;
+      const next = THREE.MathUtils.lerp(current, targetScale.current, Math.min(delta * 8, 1));
+      meshRef.current.scale.setScalar(next);
+    }
+  });
+
+  // Trigger animation on mount
+  useMemo(() => { targetScale.current = 1; }, []);
+
+  return (
+    <group ref={meshRef} position={position} scale={0.01}>
+      {/* Main body */}
+      <mesh castShadow>
+        <boxGeometry args={[NODE_WIDTH, NODE_HEIGHT, NODE_DEPTH]} />
+        <meshPhysicalMaterial
+          color="#0f172a"
+          emissive={color}
+          emissiveIntensity={0.12}
+          metalness={0.6}
+          roughness={0.2}
+          transparent
+          opacity={0.92}
+        />
+      </mesh>
+
+      {/* Glowing border frame */}
+      <lineSegments>
+        <edgesGeometry args={[new THREE.BoxGeometry(NODE_WIDTH, NODE_HEIGHT, NODE_DEPTH)]} />
+        <lineBasicMaterial color={color} />
+      </lineSegments>
+
+      {/* Top half divider */}
+      <mesh position={[0, 0, NODE_DEPTH / 2 + 0.001]}>
+        <planeGeometry args={[NODE_WIDTH, 0.012]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={3} />
+      </mesh>
+
+      {/* Vertical dividers in bottom half */}
+      {[1, 2, 3].map(i => (
+        <mesh key={i} position={[-NODE_WIDTH / 2 + i * CELL_W, -HALF_H / 2, NODE_DEPTH / 2 + 0.001]}>
+          <planeGeometry args={[0.012, HALF_H]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.5} transparent opacity={0.5} />
+        </mesh>
+      ))}
+
+      {/* VALUE */}
+      <Text position={[0, HALF_H / 2, NODE_DEPTH / 2 + 0.05]} fontSize={0.5} color="#ffffff" font={undefined} anchorX="center" anchorY="middle">
+        {value}
+      </Text>
+
+      {/* Row index */}
+      <Text position={[-CELL_W / 2 - 0.05, -HALF_H / 2, NODE_DEPTH / 2 + 0.05]} fontSize={0.24} color="#94a3b8" anchorX="center" anchorY="middle">
+        {r}
+      </Text>
+
+      {/* Col index */}
+      <Text position={[CELL_W / 2, -HALF_H / 2, NODE_DEPTH / 2 + 0.05]} fontSize={0.24} color="#94a3b8" anchorX="center" anchorY="middle">
+        {c}
+      </Text>
+
+      {/* Green diamond port (col pointer) */}
+      <mesh position={[-1.5 * CELL_W, -HALF_H / 2, NODE_DEPTH / 2 + 0.07]} rotation={[0, 0, Math.PI / 4]}>
+        <boxGeometry args={[0.14, 0.14, 0.06]} />
+        <meshStandardMaterial color="#22c55e" emissive="#22c55e" emissiveIntensity={5} />
+      </mesh>
+
+      {/* Red diamond port (row pointer) */}
+      <mesh position={[NODE_WIDTH / 2, 0, NODE_DEPTH / 2 + 0.07]} rotation={[0, 0, Math.PI / 4]}>
+        <boxGeometry args={[0.14, 0.14, 0.06]} />
+        <meshStandardMaterial color="#ef4444" emissive="#ef4444" emissiveIntensity={5} />
+      </mesh>
+    </group>
+  );
+}
+
+// Row / Col header
+function HeaderNode({ position, label, type, color }) {
+  return (
+    <Float speed={1.5} rotationIntensity={0} floatIntensity={0.3}>
+      <group position={position}>
+        <mesh>
+          <boxGeometry args={[2.8, 0.9, 0.25]} />
+          <meshPhysicalMaterial color={color} emissive={color} emissiveIntensity={0.3} transparent opacity={0.25} metalness={0.8} roughness={0.2} />
+        </mesh>
+        <lineSegments>
+          <edgesGeometry args={[new THREE.BoxGeometry(2.8, 0.9, 0.25)]} />
+          <lineBasicMaterial color={color} />
+        </lineSegments>
+        <Text position={[0, 0, 0.14]} fontSize={0.28} color={color} anchorX="center" anchorY="middle">
+          {label}
+        </Text>
+      </group>
+    </Float>
+  );
+}
+
+// Infinite floor grid lines
+function CyberpunkFloor() {
+  const geo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    const lines = [];
+    const half = 80;
+    const step = 5;
+    for (let i = -half; i <= half; i += step) {
+      lines.push(i, -half, 0, i, half, 0);
+      lines.push(-half, i, 0, half, i, 0);
+    }
+    g.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
+    return g;
+  }, []);
+
+  return (
+    <lineSegments geometry={geo} position={[0, 0, -3]}>
+      <lineBasicMaterial color="#0f2a3f" transparent opacity={0.5} />
+    </lineSegments>
+  );
+}
+
+export default function Matrix3D({ nodes }) {
+  const controlsRef = useRef();
+
+  const activeRows = useMemo(() => {
+    const fromNodes = nodes.map(n => n.r);
+    return [...new Set([0, 1, 2, 3, ...fromNodes])].sort((a, b) => a - b);
+  }, [nodes]);
+
+  const activeCols = useMemo(() => {
+    const fromNodes = nodes.map(n => n.c);
+    return [...new Set([0, 1, 2, 3, ...fromNodes])].sort((a, b) => a - b);
+  }, [nodes]);
+
+  const startX = -8;
+  const startY = 7;
+
+  return (
+    <div className="w-full h-full bg-slate-950 overflow-hidden relative">
+      <div className="absolute top-4 right-4 z-50">
+        <button
+          onClick={() => controlsRef.current?.reset()}
+          className="px-4 py-2 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-400 border border-cyan-500/30 rounded-full text-[10px] font-black flex items-center gap-2 transition-all backdrop-blur"
+        >
+          <RotateCcw size={12} /> RESET CAMERA
+        </button>
+      </div>
+
+      <Canvas
+        camera={{ position: [4, 2, 26], fov: 42 }}
+        shadows
+        gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
+      >
+        <color attach="background" args={['#020617']} />
+        <fog attach="fog" args={['#020617', 40, 120]} />
+
+        <OrbitControls
+          ref={controlsRef}
+          enableDamping
+          dampingFactor={0.06}
+          screenSpacePanning
+          mouseButtons={{ LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }}
+        />
+
+        {/* Lights */}
+        <ambientLight intensity={0.4} />
+        <pointLight position={[10, 15, 15]} intensity={60} color="#ffffff" castShadow />
+        <pointLight position={[-10, -5, 10]} intensity={30} color="#0ea5e9" />
+        <pointLight position={[20, -10, 5]} intensity={20} color="#a855f7" />
+
+        <CyberpunkFloor />
+
+        {/* Row headers */}
+        {activeRows.map(r => (
+          <HeaderNode
+            key={`rh-${r}`}
+            position={[startX, -r * SPACING, 0]}
+            label={`Row ${r}`}
+            type="row"
+            color={HEADER_COLOR}
+          />
+        ))}
+
+        {/* Col headers */}
+        {activeCols.map(c => (
+          <HeaderNode
+            key={`ch-${c}`}
+            position={[c * SPACING * 1.5, startY, 0]}
+            label={`Col ${c}`}
+            type="col"
+            color={HEADER_COLOR}
+          />
+        ))}
+
+        {/* Nodes + Arrows */}
+        {nodes.map((node, i) => {
+          const nodePos = [node.c * SPACING * 1.5, -node.r * SPACING, 0];
+
+          // Row arrow (red)
+          const rowNodes = nodes.filter(n => n.r === node.r).sort((a, b) => a.c - b.c);
+          const rIdx = rowNodes.findIndex(n => n.c === node.c);
+          const startR = rIdx === 0
+            ? [startX + 1.4, nodePos[1], 0]
+            : [rowNodes[rIdx - 1].c * SPACING * 1.5 + NODE_WIDTH / 2, nodePos[1], 0];
+          const endR = [nodePos[0] - NODE_WIDTH / 2, nodePos[1], 0];
+
+          // Col arrow (green)
+          const colNodes = nodes.filter(n => n.c === node.c).sort((a, b) => a.r - b.r);
+          const cIdx = colNodes.findIndex(n => n.r === node.r);
+          const targetX = nodePos[0] - 1.5 * CELL_W;
+          const startC = cIdx === 0
+            ? [targetX, startY - 0.45, 0]
+            : [targetX, -colNodes[cIdx - 1].r * SPACING - NODE_HEIGHT / 2, 0];
+          const endC = [targetX, nodePos[1] + NODE_HEIGHT / 2, 0];
+
+          return (
+            <group key={`${node.r}-${node.c}-${i}`}>
+              <AnimatedNode position={nodePos} value={node.val} r={node.r} c={node.c} color={NODE_COLOR} />
+              <GlowArrow start={startR} end={endR} color={ROW_COLOR} />
+              <GlowArrow start={startC} end={endC} color={COL_COLOR} />
+            </group>
+          );
+        })}
+
+        {/* Post-processing */}
+        <EffectComposer>
+          <Bloom
+            intensity={1.4}
+            luminanceThreshold={0.1}
+            luminanceSmoothing={0.9}
+            blendFunction={BlendFunction.ADD}
+            mipmapBlur
+          />
+          <ChromaticAberration
+            blendFunction={BlendFunction.NORMAL}
+            offset={[0.0005, 0.0005]}
+          />
+        </EffectComposer>
+      </Canvas>
+    </div>
+  );
+}
