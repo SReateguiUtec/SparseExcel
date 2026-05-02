@@ -4,18 +4,18 @@ import { OrbitControls, Text, Float } from '@react-three/drei';
 import { EffectComposer, Bloom, ChromaticAberration } from '@react-three/postprocessing';
 import { BlendFunction } from 'postprocessing';
 import * as THREE from 'three';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, Activity } from 'lucide-react';
 
 const NODE_WIDTH = 3.2;
 const NODE_HEIGHT = 1.8;
 const CELL_W = NODE_WIDTH / 4;
 const HALF_H = NODE_HEIGHT / 2;
 const SPACING = 5.5;
-const NODE_DEPTH = 0.35;
+const NODE_DEPTH = 2.0;
 
-const NODE_COLOR   = '#00f3ff'; // cyan  — nodos
-const ROW_COLOR    = '#ef4444'; // rojo  — flechas horizontales
-const COL_COLOR    = '#22c55e'; // verde — flechas verticales
+const NODE_COLOR = '#00f3ff'; // cyan  — nodos
+const ROW_COLOR = '#ef4444'; // rojo  — flechas horizontales
+const COL_COLOR = '#22c55e'; // verde — flechas verticales
 const HEADER_COLOR = '#475569'; // gris pizarra — cabeceras de fila y columna
 
 // Glowing tube arrow between two points
@@ -133,14 +133,14 @@ function HeaderNode({ position, label, type, color }) {
     <Float speed={1.5} rotationIntensity={0} floatIntensity={0.3}>
       <group position={position}>
         <mesh>
-          <boxGeometry args={[2.8, 0.9, 0.25]} />
-          <meshPhysicalMaterial color={color} emissive={color} emissiveIntensity={0.3} transparent opacity={0.25} metalness={0.8} roughness={0.2} />
+          <boxGeometry args={[2.8, 0.9, 1.2]} />
+          <meshPhysicalMaterial color={color} emissive={color} emissiveIntensity={0.3} transparent opacity={0.35} metalness={0.7} roughness={0.15} />
         </mesh>
         <lineSegments>
-          <edgesGeometry args={[new THREE.BoxGeometry(2.8, 0.9, 0.25)]} />
+          <edgesGeometry args={[new THREE.BoxGeometry(2.8, 0.9, 1.2)]} />
           <lineBasicMaterial color={color} />
         </lineSegments>
-        <Text position={[0, 0, 0.14]} fontSize={0.28} color={color} anchorX="center" anchorY="middle">
+        <Text position={[0, 0, 0.65]} fontSize={0.28} color={color} anchorX="center" anchorY="middle">
           {label}
         </Text>
       </group>
@@ -148,62 +148,131 @@ function HeaderNode({ position, label, type, color }) {
   );
 }
 
-// Infinite floor grid lines
-function CyberpunkFloor() {
-  const geo = useMemo(() => {
-    const g = new THREE.BufferGeometry();
-    const lines = [];
-    const half = 80;
-    const step = 5;
-    for (let i = -half; i <= half; i += step) {
-      lines.push(i, -half, 0, i, half, 0);
-      lines.push(-half, i, 0, half, i, 0);
+// Infinite floor grid lines with major/minor hierarchy
+function CyberpunkFloor({ rows, cols }) {
+  const { majorGeo, minorGeo } = useMemo(() => {
+    const majorLines = [];
+    const minorLines = [];
+
+    const width = cols * SPACING * 1.5;
+    const height = rows * SPACING;
+    const step = 5.5;
+
+    // Verticales
+    for (let x = -SPACING; x <= width + SPACING; x += step * 1.5) {
+      const isMajor = Math.round(x / (step * 1.5)) % 5 === 0;
+      const target = isMajor ? majorLines : minorLines;
+      target.push(x, SPACING, 0, x, -height - SPACING, 0);
     }
-    g.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
-    return g;
-  }, []);
+    // Horizontales
+    for (let y = SPACING; y >= -height - SPACING; y -= step) {
+      const isMajor = Math.round(y / step) % 10 === 0;
+      const target = isMajor ? majorLines : minorLines;
+      target.push(-SPACING, y, 0, width + SPACING, y, 0);
+    }
+
+    const gMaj = new THREE.BufferGeometry();
+    gMaj.setAttribute('position', new THREE.Float32BufferAttribute(majorLines, 3));
+    const gMin = new THREE.BufferGeometry();
+    gMin.setAttribute('position', new THREE.Float32BufferAttribute(minorLines, 3));
+
+    return { majorGeo: gMaj, minorGeo: gMin };
+  }, [rows, cols]);
 
   return (
-    <lineSegments geometry={geo} position={[0, 0, -3]}>
-      <lineBasicMaterial color="#0f2a3f" transparent opacity={0.5} />
-    </lineSegments>
+    <group position={[0, 0, -3.2]}>
+      <lineSegments geometry={majorGeo}>
+        <lineBasicMaterial color="#334155" transparent opacity={0.6} />
+      </lineSegments>
+      <lineSegments geometry={minorGeo}>
+        <lineBasicMaterial color="#1e293b" transparent opacity={0.2} />
+      </lineSegments>
+    </group>
   );
 }
 
-export default function Matrix3D({ nodes }) {
+// Animated selection frame for active cell
+function SelectionHighlight({ position }) {
+  const meshRef = useRef();
+
+  useFrame((state) => {
+    if (meshRef.current) {
+      meshRef.current.scale.setScalar(1 + Math.sin(state.clock.elapsedTime * 4) * 0.05);
+    }
+  });
+
+  return (
+    <group position={position}>
+      <mesh ref={meshRef}>
+        <boxGeometry args={[NODE_WIDTH + 0.5, NODE_HEIGHT + 0.5, NODE_DEPTH + 0.2]} />
+        <meshBasicMaterial color="#22c55e" transparent opacity={0.15} />
+      </mesh>
+      <lineSegments>
+        <edgesGeometry args={[new THREE.BoxGeometry(NODE_WIDTH + 0.5, NODE_HEIGHT + 0.5, NODE_DEPTH + 0.2)]} />
+        <lineBasicMaterial color="#22c55e" />
+      </lineSegments>
+      {/* Searchlight effect */}
+      <pointLight distance={10} intensity={20} color="#22c55e" />
+    </group>
+  );
+}
+
+export default function Matrix3D({ nodes, activeCell, gridSize }) {
   const controlsRef = useRef();
 
   const activeRows = useMemo(() => {
     const fromNodes = nodes.map(n => n.r);
-    return [...new Set([0, 1, 2, 3, ...fromNodes])].sort((a, b) => a - b);
-  }, [nodes]);
+    const editingR = activeCell ? [activeCell.r] : [];
+    return [...new Set([0, 1, 2, 3, ...fromNodes, ...editingR])].sort((a, b) => a - b);
+  }, [nodes, activeCell]);
 
   const activeCols = useMemo(() => {
     const fromNodes = nodes.map(n => n.c);
-    return [...new Set([0, 1, 2, 3, ...fromNodes])].sort((a, b) => a - b);
-  }, [nodes]);
+    const editingC = activeCell ? [activeCell.c] : [];
+    return [...new Set([0, 1, 2, 3, ...fromNodes, ...editingC])].sort((a, b) => a - b);
+  }, [nodes, activeCell]);
 
   const startX = -8;
   const startY = 7;
 
+  const focusAll = () => {
+    if (!nodes.length || !controlsRef.current) return;
+
+    // Calcular centro y tamaño de la escena activa
+    const maxR = Math.max(...nodes.map(n => n.r), 10);
+    const maxC = Math.max(...nodes.map(n => n.c), 10);
+
+    const center = [(maxC * SPACING * 1.5) / 2, (-maxR * SPACING) / 2, 0];
+    const distance = Math.max(maxR * SPACING, maxC * SPACING * 1.5) * 1.2;
+
+    controlsRef.current.target.set(...center);
+    controlsRef.current.object.position.set(center[0], center[1], distance);
+    controlsRef.current.update();
+  };
+
   return (
     <div className="w-full h-full bg-slate-950 overflow-hidden relative">
-      <div className="absolute top-4 right-4 z-50">
+      <div className="absolute top-4 right-4 z-50 flex gap-2">
+        <button
+          onClick={focusAll}
+          className="px-4 py-2 bg-green-600/20 hover:bg-green-600/40 text-green-400 border border-green-500/30 rounded-full text-[10px] font-black flex items-center gap-2 transition-all backdrop-blur"
+        >
+          <Activity size={12} /> ENFOCAR TODO
+        </button>
         <button
           onClick={() => controlsRef.current?.reset()}
           className="px-4 py-2 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-400 border border-cyan-500/30 rounded-full text-[10px] font-black flex items-center gap-2 transition-all backdrop-blur"
         >
-          <RotateCcw size={12} /> RESET CAMERA
+          <RotateCcw size={12} /> REINICIAR CÁMARA
         </button>
       </div>
 
       <Canvas
-        camera={{ position: [4, 2, 26], fov: 42 }}
+        camera={{ position: [4, 2, 26], fov: 42, far: 20000 }}
         shadows
         gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
       >
         <color attach="background" args={['#020617']} />
-        <fog attach="fog" args={['#020617', 40, 120]} />
 
         <OrbitControls
           ref={controlsRef}
@@ -218,17 +287,23 @@ export default function Matrix3D({ nodes }) {
         <pointLight position={[10, 15, 15]} intensity={60} color="#ffffff" castShadow />
         <pointLight position={[-10, -5, 10]} intensity={30} color="#0ea5e9" />
         <pointLight position={[20, -10, 5]} intensity={20} color="#a855f7" />
+        <CyberpunkFloor rows={gridSize.rows} cols={gridSize.cols} />
 
-        <CyberpunkFloor />
+        {/* Active Selection Highlight */}
+        {activeCell && (
+          <SelectionHighlight
+            position={[activeCell.c * SPACING * 1.5, -activeCell.r * SPACING, 0]}
+          />
+        )}
 
         {/* Row headers */}
         {activeRows.map(r => (
           <HeaderNode
             key={`rh-${r}`}
             position={[startX, -r * SPACING, 0]}
-            label={`Row ${r}`}
+            label={`Fila ${r}`}
             type="row"
-            color={HEADER_COLOR}
+            color={r === activeCell?.r ? '#22c55e' : HEADER_COLOR}
           />
         ))}
 
@@ -239,7 +314,7 @@ export default function Matrix3D({ nodes }) {
             position={[c * SPACING * 1.5, startY, 0]}
             label={`Col ${c}`}
             type="col"
-            color={HEADER_COLOR}
+            color={c === activeCell?.c ? '#22c55e' : HEADER_COLOR}
           />
         ))}
 
@@ -276,8 +351,8 @@ export default function Matrix3D({ nodes }) {
         {/* Post-processing */}
         <EffectComposer>
           <Bloom
-            intensity={1.4}
-            luminanceThreshold={0.1}
+            intensity={2.5}
+            luminanceThreshold={0.05}
             luminanceSmoothing={0.9}
             blendFunction={BlendFunction.ADD}
             mipmapBlur
