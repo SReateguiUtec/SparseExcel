@@ -13,7 +13,7 @@
 #include <cctype>
 
 using json = nlohmann::json;
-using CellValue = std::variant<int, char, std::string>;
+using CellValue = std::variant<int, double, char, std::string>;
 template <typename T> struct Node {
   T value;
   int row, col;
@@ -54,23 +54,26 @@ public:
   int count() const;
   int numeric_count() const;
 
-  int sum_row(int r) const;
-  int sum_col(int c) const;
+  double sum_row(int r) const;
+  double sum_col(int c) const;
 
   double avg_row(int r) const;
   double avg_col(int c) const;
   double average() const;
-  int sum_range(int r1, int c1, int r2, int c2) const;
+  double sum_range(int r1, int c1, int r2, int c2) const;
   double avg_range(int r1, int c1, int r2, int c2) const;
-  int min_range(int r1, int c1, int r2, int c2) const;
-  int max_range(int r1, int c1, int r2, int c2) const;
+  double min_range(int r1, int c1, int r2, int c2) const;
+  double max_range(int r1, int c1, int r2, int c2) const;
 
   // Formulas
   bool parse_cell_ref(std::string ref, int &r, int &c) const;
-  int evaluate_formula(std::string formula) const;
+  double evaluate_formula(std::string formula) const;
 
   // Para visualizacion
   nlohmann::json get_all_nodes();
+
+  // Limpiar toda la matriz
+  void clear();
 };
 
 // ============================================================
@@ -81,6 +84,9 @@ public:
 bool is_zero_value(const CellValue& value) {
   if (const int* p = std::get_if<int>(&value)) {
     return *p == 0;
+  }
+  if (const double* p = std::get_if<double>(&value)) {
+    return *p == 0.0;
   }
   return false;
 }
@@ -104,6 +110,9 @@ bool is_zero_generic(const U& value) {
     if (const int* p = std::get_if<int>(&value)) {
       return *p == 0;
     }
+    if (const double* p = std::get_if<double>(&value)) {
+      return *p == 0.0;
+    }
     return false;
   } else {
     return value == 0;
@@ -113,7 +122,7 @@ bool is_zero_generic(const U& value) {
 template <typename U>
 bool is_numeric_generic(const U& value) {
   if constexpr (std::is_same_v<U, CellValue>) {
-    return std::holds_alternative<int>(value);
+    return std::holds_alternative<int>(value) || std::holds_alternative<double>(value);
   } else {
     return true;
   }
@@ -128,6 +137,21 @@ int to_int_generic(const U& value) {
     throw std::runtime_error("La celda no contiene un valor numerico");
   } else {
     return static_cast<int>(value);
+  }
+}
+
+template <typename U>
+double to_double_generic(const U& value) {
+  if constexpr (std::is_same_v<U, CellValue>) {
+    if (const int* p = std::get_if<int>(&value)) {
+      return static_cast<double>(*p);
+    }
+    if (const double* p = std::get_if<double>(&value)) {
+      return *p;
+    }
+    throw std::runtime_error("La celda no contiene un valor numerico");
+  } else {
+    return static_cast<double>(value);
   }
 }
 // Solo cuenta celdas numericas
@@ -417,17 +441,17 @@ void SparseMatrix<T>::remove_range(int r1, int c1, int r2, int c2) {
 
 // Suma de fila especifica
 template <typename T>
-int SparseMatrix<T>::sum_row(int r) const {
+double SparseMatrix<T>::sum_row(int r) const {
   if (r < 0 || r >= n_rows) {
     return 0;
   }
 
-  int total = 0;
+  double total = 0;
   Node<T> *curr = rows[r];
 
   while (curr != nullptr) {
     if (is_numeric_generic(curr->value)) {
-      total += to_int_generic(curr->value);
+      total += to_double_generic(curr->value);
     }
     curr = curr->next_row;
   }
@@ -437,17 +461,17 @@ int SparseMatrix<T>::sum_row(int r) const {
 
 // Suma de columna especifica
 template <typename T>
-int SparseMatrix<T>::sum_col(int c) const {
+double SparseMatrix<T>::sum_col(int c) const {
   if (c < 0 || c >= n_cols) {
     return 0;
   }
 
-  int total = 0;
+  double total = 0;
   Node<T> *curr = cols[c];
 
   while (curr != nullptr) {
     if (is_numeric_generic(curr->value)) {
-      total += to_int_generic(curr->value);
+      total += to_double_generic(curr->value);
     }
     curr = curr->next_col;
   }
@@ -468,7 +492,7 @@ double SparseMatrix<T>::avg_row(int r) const {
 
   while (curr != nullptr) {
     if (is_numeric_generic(curr->value)) {
-      total += to_int_generic(curr->value);
+      total += to_double_generic(curr->value);
       count++;
     }
     curr = curr->next_row;
@@ -489,7 +513,7 @@ double SparseMatrix<T>::avg_col(int c) const {
 
   while (curr != nullptr) {
     if (is_numeric_generic(curr->value)) {
-      total += to_int_generic(curr->value);
+      total += to_double_generic(curr->value);
       count++;
     }
     curr = curr->next_col;
@@ -512,19 +536,19 @@ template <typename T> int SparseMatrix<T>::count() const {
 }
 
 template <typename T>
-int SparseMatrix<T>::sum_range(int r1, int c1, int r2, int c2) const {
+double SparseMatrix<T>::sum_range(int r1, int c1, int r2, int c2) const {
   if (r1 < 0 || r2 >= n_rows || c1 < 0 || c2 >= n_cols || r1 > r2 || c1 > c2) {
     return 0;
   }
 
-  int total = 0;
+  double total = 0;
 
   for (int r = r1; r <= r2; ++r) {
     Node<T> *curr = rows[r];
 
     while (curr != nullptr && curr->col <= c2) {
       if (curr->col >= c1 && is_numeric_generic(curr->value)) {
-        total += to_int_generic(curr->value);
+        total += to_double_generic(curr->value);
       }
 
       curr = curr->next_row;
@@ -549,7 +573,7 @@ double SparseMatrix<T>::avg_range(int r1, int c1, int r2, int c2) const {
 
     while (curr != nullptr && curr->col <= c2) {
       if (curr->col >= c1 && is_numeric_generic(curr->value)) {
-        total += to_int_generic(curr->value);
+        total += to_double_generic(curr->value);
         count++;
       }
 
@@ -561,12 +585,12 @@ double SparseMatrix<T>::avg_range(int r1, int c1, int r2, int c2) const {
 }
 // Minimo de rango
 template <typename T>
-int SparseMatrix<T>::min_range(int r1, int c1, int r2, int c2) const {
+double SparseMatrix<T>::min_range(int r1, int c1, int r2, int c2) const {
   if (r1 < 0 || r2 >= n_rows || c1 < 0 || c2 >= n_cols || r1 > r2 || c1 > c2) {
     return 0;
   }
 
-  int min_val = 0;
+  double min_val = 0;
   bool first = true;
 
   for (int r = r1; r <= r2; ++r) {
@@ -574,7 +598,7 @@ int SparseMatrix<T>::min_range(int r1, int c1, int r2, int c2) const {
 
     while (curr != nullptr && curr->col <= c2) {
       if (curr->col >= c1 && is_numeric_generic(curr->value)) {
-        int value = to_int_generic(curr->value);
+        double value = to_double_generic(curr->value);
 
         if (first || value < min_val) {
           min_val = value;
@@ -590,12 +614,12 @@ int SparseMatrix<T>::min_range(int r1, int c1, int r2, int c2) const {
 }
 // Maximo de rango
 template <typename T>
-int SparseMatrix<T>::max_range(int r1, int c1, int r2, int c2) const {
+double SparseMatrix<T>::max_range(int r1, int c1, int r2, int c2) const {
   if (r1 < 0 || r2 >= n_rows || c1 < 0 || c2 >= n_cols || r1 > r2 || c1 > c2) {
     return 0;
   }
 
-  int max_val = 0;
+  double max_val = 0;
   bool first = true;
 
   for (int r = r1; r <= r2; ++r) {
@@ -603,7 +627,7 @@ int SparseMatrix<T>::max_range(int r1, int c1, int r2, int c2) const {
 
     while (curr != nullptr && curr->col <= c2) {
       if (curr->col >= c1 && is_numeric_generic(curr->value)) {
-        int value = to_int_generic(curr->value);
+        double value = to_double_generic(curr->value);
 
         if (first || value > max_val) {
           max_val = value;
@@ -629,7 +653,7 @@ double SparseMatrix<T>::average() const {
 
     while (curr != nullptr) {
       if (is_numeric_generic(curr->value)) {
-        total += to_int_generic(curr->value);
+        total += to_double_generic(curr->value);
         count++;
       }
 
@@ -649,6 +673,13 @@ json cell_value_to_json(const CellValue& value) {
     return {
         {"type", "int"},
         {"val", std::get<int>(value)}
+    };
+  }
+
+  if (std::holds_alternative<double>(value)) {
+    return {
+        {"type", "double"},
+        {"val", std::get<double>(value)}
     };
   }
 
@@ -721,14 +752,25 @@ template <typename T>
 bool SparseMatrix<T>::parse_cell_ref(std::string ref, int &r, int &c) const {
   if (ref.empty())
     return false;
+  
   std::string col_str = "";
   std::string row_str = "";
+  bool reading_row = false;
+
   for (char ch : ref) {
-    if (std::isalpha(ch))
+    if (std::isalpha(ch)) {
+      if (reading_row) return false; // Error: Letra después de número (ej: A1B)
       col_str += std::toupper(ch);
-    else if (std::isdigit(ch))
+    }
+    else if (std::isdigit(ch)) {
+      reading_row = true;
       row_str += ch;
+    }
+    else {
+      return false; // Carácter no permitido (ej: =, +, etc.)
+    }
   }
+  
   if (col_str.empty() || row_str.empty())
     return false;
 
@@ -743,7 +785,7 @@ bool SparseMatrix<T>::parse_cell_ref(std::string ref, int &r, int &c) const {
 
 // Evalua una formula simple como "A1+B1"
 template <typename T>
-int SparseMatrix<T>::evaluate_formula(std::string formula) const {
+double SparseMatrix<T>::evaluate_formula(std::string formula) const {
   if (formula.empty()) {
     return 0;
   }
@@ -765,7 +807,7 @@ int SparseMatrix<T>::evaluate_formula(std::string formula) const {
     op = '/';
   }
 
-  auto get_numeric_val = [&](std::string s) -> int {
+  auto get_numeric_val = [&](std::string s) -> double {
     int r, c;
 
     if (parse_cell_ref(s, r, c)) {
@@ -775,11 +817,11 @@ int SparseMatrix<T>::evaluate_formula(std::string formula) const {
         throw std::runtime_error("No se puede operar con texto o char");
       }
 
-      return to_int_generic(value);
+      return to_double_generic(value);
     }
 
     try {
-      return static_cast<int>(std::stod(s));
+      return std::stod(s);
     } catch (...) {
       throw std::runtime_error("Formula invalida");
     }
@@ -792,8 +834,8 @@ int SparseMatrix<T>::evaluate_formula(std::string formula) const {
   std::string left = formula.substr(0, op_pos);
   std::string right = formula.substr(op_pos + 1);
 
-  int v1 = get_numeric_val(left);
-  int v2 = get_numeric_val(right);
+  double v1 = get_numeric_val(left);
+  double v2 = get_numeric_val(right);
 
   if (op == '+') {
     return v1 + v2;
@@ -818,3 +860,18 @@ int SparseMatrix<T>::evaluate_formula(std::string formula) const {
 }
 
 #endif // SPARSE_MATRIX_
+template <typename T>
+void SparseMatrix<T>::clear() {
+  for (int i = 0; i < n_rows; ++i) {
+    Node<T> *curr = rows[i];
+    while (curr != nullptr) {
+      Node<T> *temp = curr;
+      curr = curr->next_row;
+      delete temp;
+    }
+    rows[i] = nullptr;
+  }
+  for (int j = 0; j < n_cols; ++j) {
+    cols[j] = nullptr;
+  }
+}

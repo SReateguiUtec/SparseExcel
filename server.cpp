@@ -3,14 +3,54 @@
 #include "sparse_matrix.h"
 #include <iostream>
 #include <variant>
+#include <chrono>
+#include <random>
+
 using json = nlohmann::json;
 using namespace httplib;
 
 int main() {
-  using CellValue = std::variant<int, char, std::string>;
-  SparseMatrix<CellValue> matrix(100, 100);
+  using CellValue = std::variant<int, double, char, std::string>;
+  SparseMatrix<CellValue> matrix(1000, 1000); // Matriz más grande para la prueba
   Server svr;
 
+  // ============================================================
+  // BENCHMARK DE RENDIMIENTO
+  // ============================================================
+  std::cout << "--- INICIANDO PRUEBA DE RENDIMIENTO ---" << std::endl;
+  
+  auto start_ins = std::chrono::high_resolution_clock::now();
+  
+  // Insertar 100,000 nodos aleatorios
+  int nodos_a_insertar = 100000;
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<> dis_val(1, 100);
+  std::uniform_int_distribution<> dis_pos(0, 999);
+
+  for (int i = 0; i < nodos_a_insertar; ++i) {
+    matrix.insert(dis_pos(gen), dis_pos(gen), dis_val(gen));
+  }
+
+  auto end_ins = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> diff_ins = end_ins - start_ins;
+  
+  std::cout << ">> Insercion de " << nodos_a_insertar << " nodos: " << diff_ins.count() << " segundos." << std::endl;
+
+  // Medir tiempo de SUMA TOTAL
+  auto start_sum = std::chrono::high_resolution_clock::now();
+  double resultado_suma = matrix.average(); // Usamos average que recorre toda la matriz
+  auto end_sum = std::chrono::high_resolution_clock::now();
+  
+  std::chrono::duration<double> diff_sum = end_sum - start_sum;
+  
+  std::cout << ">> Recorrido y calculo sobre todos los nodos: " << diff_sum.count() << " segundos." << std::endl;
+  std::cout << "--- PRUEBA FINALIZADA (LIMPIANDO...) ---" << std::endl;
+  
+  matrix.clear(); // Limpiamos todo para que el usuario empiece de cero
+  
+  std::cout << ">> Matriz lista y vacia para el usuario." << std::endl << std::endl;
+  // ============================================================
   // CORS middleware
   svr.set_post_routing_handler([](const auto &req, auto &res) {
     res.set_header("Access-Control-Allow-Origin", "*");
@@ -38,7 +78,15 @@ int main() {
     CellValue value;
 
     if (body["val"].is_number_integer()) {
-      value = body["val"].get<int>();
+      long long temp = body["val"].get<long long>();
+      if (temp > 2147483647 || temp < -2147483648) {
+        value = static_cast<double>(temp);
+      } else {
+        value = static_cast<int>(temp);
+      }
+    }
+    else if (body["val"].is_number_float()) {
+      value = body["val"].get<double>();
     }
     else if (body["val"].is_string()) {
       std::string s = body["val"].get<std::string>();
@@ -48,16 +96,35 @@ int main() {
       }
       else {
         bool es_numero = true;
+        bool tiene_punto = false;
 
         for (char ch : s) {
-          if (!std::isdigit(ch) && ch != '-') {
+          if (!std::isdigit(ch) && ch != '-' && ch != '.') {
             es_numero = false;
             break;
+          }
+          if (ch == '.') {
+            if (tiene_punto) es_numero = false;
+            tiene_punto = true;
           }
         }
 
         if (es_numero) {
-          value = std::stoi(s);
+          try {
+            if (tiene_punto) {
+              value = std::stod(s);
+            } else {
+              // Si es un número entero, verificamos si cabe en un int de 32 bits
+              long long temp = std::stoll(s);
+              if (temp > 2147483647 || temp < -2147483648) {
+                value = static_cast<double>(temp); // Si es muy grande, lo guardamos como double
+              } else {
+                value = static_cast<int>(temp); // Si cabe, lo guardamos como int
+              }
+            }
+          } catch (...) {
+            value = s; // Si falla la conversión (ej: número demasiado grande incluso para long long), como string
+          }
         }
         else if (s.size() == 1) {
           value = s[0];   // char
@@ -85,10 +152,15 @@ int main() {
 
   // Evaluate formula in backend
   svr.Post("/evaluate", [&](const Request &req, Response &res) {
-    auto body = json::parse(req.body);
-    std::string formula = body["formula"];
-    auto resultado = matrix.evaluate_formula(formula);
-    res.set_content(json({{"result", resultado}}).dump(), "application/json");
+    try {
+      auto body = json::parse(req.body);
+      std::string formula = body["formula"];
+      auto resultado = matrix.evaluate_formula(formula);
+      res.set_content(json({{"result", resultado}}).dump(), "application/json");
+    } catch (const std::exception &e) {
+      res.status = 400;
+      res.set_content(json({{"error", e.what()}}).dump(), "application/json");
+    }
   });
 
   // Delete single node
