@@ -2,12 +2,13 @@
 #include "json.hpp"
 #include "sparse_matrix.h"
 #include <iostream>
-
+#include <variant>
 using json = nlohmann::json;
 using namespace httplib;
 
 int main() {
-  SparseMatrix<int> matrix(100, 100);
+  using CellValue = std::variant<int, char, std::string>;
+  SparseMatrix<CellValue> matrix(100, 100);
   Server svr;
 
   // CORS middleware
@@ -28,10 +29,59 @@ int main() {
 
   // Insert node
   svr.Post("/insert", [&](const Request &req, Response &res) {
+  try {
     auto body = json::parse(req.body);
-    matrix.insert(body["r"], body["c"], body["val"]);
+
+    int r = body["r"].get<int>();
+    int c = body["c"].get<int>();
+
+    CellValue value;
+
+    if (body["val"].is_number_integer()) {
+      value = body["val"].get<int>();
+    }
+    else if (body["val"].is_string()) {
+      std::string s = body["val"].get<std::string>();
+
+      if (s.empty()) {
+        value = 0;
+      }
+      else {
+        bool es_numero = true;
+
+        for (char ch : s) {
+          if (!std::isdigit(ch) && ch != '-') {
+            es_numero = false;
+            break;
+          }
+        }
+
+        if (es_numero) {
+          value = std::stoi(s);
+        }
+        else if (s.size() == 1) {
+          value = s[0];   // char
+        }
+        else {
+          value = s;      // string
+        }
+      }
+    }
+    else {
+      res.status = 400;
+      res.set_content(json({{"error", "Valor no valido"}}).dump(), "application/json");
+      return;
+    }
+
+    matrix.insert(r, c, value);
+
     res.set_content(json({{"status", "ok"}}).dump(), "application/json");
-  });
+  }
+  catch (const std::exception &e) {
+    res.status = 500;
+    res.set_content(json({{"error", e.what()}}).dump(), "application/json");
+  }
+});
 
   // Evaluate formula in backend
   svr.Post("/evaluate", [&](const Request &req, Response &res) {

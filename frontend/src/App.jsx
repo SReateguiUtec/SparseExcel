@@ -34,6 +34,19 @@ const colToIdx = (letters) => {
   return col - 1;
 };
 
+const parseCellValue = (value) => {
+  const clean = String(value ?? '').trim();
+
+  if (clean === '') return '';
+
+  const isInteger = /^-?\d+$/.test(clean);
+
+  if (isInteger) {
+    return Number(clean);
+  }
+
+  return clean;
+};
 export default function App() {
   const gridRef = useRef(null);
   const [nodes, setNodes] = useState([]);
@@ -121,24 +134,27 @@ export default function App() {
       }
     }
 
-    const numVal = parseInt(finalVal);
+    const parsedValue = parseCellValue(finalVal);
 
     try {
-      if (finalVal === '' || isNaN(numVal)) {
+      if (parsedValue === '') {
         if (!hadNode) return;
         await axios.post(`${API_BASE}/delete`, { r, c });
         setOpLog(prev => [{ type: 'delete', cell: cellName, time: new Date().toLocaleTimeString() }, ...prev].slice(0, 8));
       } else {
-        await axios.post(`${API_BASE}/insert`, { r, c, val: numVal });
+        await axios.post(`${API_BASE}/insert`, { r, c, val: parsedValue });
+
         const logEntry = {
           type: 'insert',
           cell: cellName,
-          val: numVal,
+          val: parsedValue,
           isFormula: val.toString().startsWith('='),
           time: new Date().toLocaleTimeString()
         };
+
         setOpLog(prev => [logEntry, ...prev].slice(0, 8));
       }
+
       fetchData();
     } catch (err) {
       console.error("Error updating cell", err);
@@ -202,7 +218,14 @@ export default function App() {
       try {
         const colNodes = nodes.filter(n => n.c === cIdx);
         if (colNodes.length === 0) { setAnalysisResult(0); return; }
-        const vals = colNodes.map(n => n.val);
+        const vals = colNodes
+            .map(n => Number(n.val))
+            .filter(v => !isNaN(v));
+        if (vals.length === 0) {
+          setAnalysisResult(0);
+          setLastOp(`${op} COL ${range}`);
+          return;
+        }
         let res = 0;
         if (op === 'SUMA') res = vals.reduce((a, b) => a + b, 0);
         else if (op === 'PROMEDIO') res = vals.reduce((a, b) => a + b, 0) / vals.length;
@@ -216,7 +239,14 @@ export default function App() {
       try {
         const rowNodes = nodes.filter(n => n.r === rIdx);
         if (rowNodes.length === 0) { setAnalysisResult(0); return; }
-        const vals = rowNodes.map(n => n.val);
+        const vals = rowNodes
+            .map(n => Number(n.val))
+            .filter(v => !isNaN(v));
+        if (vals.length === 0) {
+          setAnalysisResult(0);
+          setLastOp(`${op} COL ${range}`);
+          return;
+        }
         let res = 0;
         if (op === 'SUMA') res = vals.reduce((a, b) => a + b, 0);
         else if (op === 'PROMEDIO') res = vals.reduce((a, b) => a + b, 0) / vals.length;
@@ -469,7 +499,7 @@ export default function App() {
                   className="w-1/3 bg-black/40 border border-white/10 rounded px-3 py-1.5 text-[10px] outline-none focus:border-green-500 text-center font-bold"
                 />
                 <input
-                  type="number"
+                  type="text"
                   placeholder="Val"
                   value={input.val}
                   onChange={e => setInput({ ...input, val: e.target.value })}
@@ -484,11 +514,13 @@ export default function App() {
                   }
                   const cIdx = colToIdx(colStr);
                   const rIdx = parseInt(input.r) - 1;
-                  const val = parseInt(input.val);
+                  const val = parseCellValue(input.val);
 
-                  if (isNaN(cIdx) || isNaN(rIdx) || isNaN(val) || rIdx < 0) return alert("Datos inválidos. Ej: Col: B, Fila: 50, Val: 10");
+                  if (isNaN(cIdx) || isNaN(rIdx) || rIdx < 0 || val === '') {
+                    return alert("Datos inválidos. Ej: Col: B, Fila: 50, Val: 10 o Val: Hola");
+                  }
 
-                  await axios.post(`${API_BASE}/insert`, { r: rIdx, c: cIdx, val: val });
+                  await axios.post(`${API_BASE}/insert`, { r: rIdx, c: cIdx, val });
                   setInput({ ...input, r: '', c: '', val: '' });
                   fetchData();
                   setTimeout(() => jumpToCell(rIdx, cIdx), 500);
