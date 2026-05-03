@@ -77,7 +77,7 @@ public:
 // Operaciones Basicas
 // ============================================================
 
-//Función auxiliar para verificar si la celda esta en 0 teniendo en cuenta el CellValue
+// Función auxiliar para verificar si la celda esta en 0 teniendo en cuenta el CellValue
 bool is_zero_value(const CellValue& value) {
   if (const int* p = std::get_if<int>(&value)) {
     return *p == 0;
@@ -85,12 +85,12 @@ bool is_zero_value(const CellValue& value) {
   return false;
 }
 
-//Función auxiliar para verificar si el valor es entero
+// Función auxiliar para verificar si el valor es entero
 bool is_int_value(const CellValue& value) {
   return std::holds_alternative<int>(value);
 }
 
-//Función auxiliar para obtener el valor entero
+// Función auxiliar para obtener el valor entero
 int get_int_value(const CellValue& value) {
   if (const int* p = std::get_if<int>(&value)) {
     return *p;
