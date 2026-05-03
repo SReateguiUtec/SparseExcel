@@ -9,17 +9,23 @@ Este proyecto es un visualizador premium de Matriz Dispersa (Sparse Matrix) impl
 ### Justificación de la Estructura
 Se eligió una **Lista Enlazada Cruzada** (Sparse Matrix) debido a la naturaleza de una hoja de cálculo, donde la densidad de datos suele ser inferior al 5%. Esta estructura permite:
 - **Ahorro de Memoria:** Solo se reserva espacio para celdas con datos. Una matriz densa de 10,000x10,000 ocuparía GBs de RAM; nuestra estructura solo ocupa bytes proporcionales a los datos reales.
-- **Flexibilidad:** Permite el crecimiento dinámico de filas y columnas sin necesidad de reasignar grandes bloques de memoria contigua.
+- **Flexibilidad (Multi-tipo):** Mediante el uso de `std::variant<int, char, string>`, cada celda puede manejar dinámicamente diferentes tipos de datos sin perder la seguridad de tipos de C++.
 
 ### Complejidad Temporal
 | Operación | Complejidad | Descripción |
 | :--- | :--- | :--- |
-| **Inserción / Modificación** | **O(k)** | Donde $k$ es el número de elementos en la fila/columna. Solo recorremos los nodos existentes. |
-| **Búsqueda / Consulta** | **O(k)** | Similar a la inserción, recorremos la lista enlazada hasta encontrar la coordenada. |
-| **Eliminación de Celda** | **O(k)** | Localizamos el nodo y reajustamos los punteros de sus vecinos. |
-| **Operaciones de Agregación** | **O(N)** | Donde $N$ es el total de nodos en el rango solicitado. |
+| **Inserción / Modificación** | **O(k)** | $k$ es el número de elementos en la fila/columna. El uso de `std::variant` agiliza la actualización sin necesidad de polimorfismo costoso. |
+| **Búsqueda / Consulta** | **O(k)** | Recorrido de la lista enlazada hasta encontrar la coordenada. |
+| **Eliminación de Celda** | **O(k)** | Localización del nodo y reajuste de punteros de vecinos. |
+| **Operaciones de Agregación** | **O(N)** | Donde $N$ es el total de nodos en el rango solicitado. El chequeo de tipo numérico es $O(1)$ por nodo gracias al discriminador del variant. |
 
-*Nota: En todos los casos, $k$ es significativamente menor que $n$ (total de celdas), lo que hace que esta implementación sea altamente eficiente para hojas de cálculo de gran escala.*
+### Complejidad Espacial
+| Componente | Complejidad | Justificación |
+| :--- | :--- | :--- |
+| **Estructura Global** | **O(N)** | El espacio total crece linealmente con el número de celdas ocupadas ($N$), no con el tamaño de la cuadrícula. |
+| **Nodo Individual** | **O(1)** | Cada nodo tiene un tamaño fijo predeterminado por el tipo más grande en el variant (en este caso, `std::string`). |
+
+*Nota: Se realiza un trade-off consciente donde se incrementa ligeramente el tamaño de cada nodo a cambio de eliminar la complejidad de parseo manual y aumentar la seguridad del motor de cálculo.*
 
 <br>
 
