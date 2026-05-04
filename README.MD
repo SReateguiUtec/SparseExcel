@@ -4,11 +4,9 @@ Este proyecto es un visualizador de una Matriz Dispersa (Sparse Matrix) implemen
 
 ## 📺 Demo del Proyecto
 
-<div align="center">
-  <video src="https://github.com/user-attachments/assets/6f0a60a4-530f-4d0b-854f-13286eb92966" width="100%" controls>
-    Tu navegador no soporta el elemento de video.
-  </video>
-</div>
+<video src="SparseMatrixDemo.mp4" width="100%" controls>
+  Tu navegador no soporta el elemento de video.
+</video>
 
 *(Si el video no se reproduce, puedes abrirlo directamente en `SparseMatrixDemo.mp4`)*
 
