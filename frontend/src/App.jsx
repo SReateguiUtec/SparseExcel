@@ -128,7 +128,7 @@ export default function App() {
     if (val.toString().startsWith('=')) {
       try {
         const { data } = await axios.post(`${API_BASE}/evaluate`, { formula: val });
-        finalVal = data.result; // Quitamos el Math.round
+        finalVal = data.result;
       } catch (e) {
         alert("Error en fórmula (Backend)");
         return;
@@ -143,10 +143,12 @@ export default function App() {
         await axios.post(`${API_BASE}/delete`, { r, c });
         setOpLog(prev => [{ type: 'delete', cell: cellName, time: new Date().toLocaleTimeString() }, ...prev].slice(0, 8));
       } else {
-        await axios.post(`${API_BASE}/insert`, { r, c, val: parsedValue });
+        // Decidir si modificar o insertar
+        const endpoint = hadNode ? '/modify' : '/insert';
+        await axios.post(`${API_BASE}${endpoint}`, { r, c, val: parsedValue });
 
         const logEntry = {
-          type: 'insert',
+          type: hadNode ? 'modify' : 'insert',
           cell: cellName,
           val: parsedValue,
           isFormula: val.toString().startsWith('='),

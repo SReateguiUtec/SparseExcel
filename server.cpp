@@ -148,6 +148,26 @@ int main() {
   }
 });
 
+  // Modify node
+  svr.Post("/modify", [&](const Request &req, Response &res) {
+    try {
+      auto body = json::parse(req.body);
+      int r = body["r"].get<int>();
+      int c = body["c"].get<int>();
+      
+      CellValue value;
+      if (body["val"].is_number_integer()) value = body["val"].get<int>();
+      else if (body["val"].is_number_float()) value = body["val"].get<double>();
+      else value = body["val"].get<std::string>();
+
+      matrix.modify(r, c, value);
+      res.set_content(json({{"status", "ok", "method", "modify"}}).dump(), "application/json");
+    } catch (const std::exception &e) {
+      res.status = 500;
+      res.set_content(json({{"error", e.what()}}).dump(), "application/json");
+    }
+  });
+
   // Evaluate formula in backend
   svr.Post("/evaluate", [&](const Request &req, Response &res) {
     try {
