@@ -39,9 +39,10 @@ const parseCellValue = (value) => {
 
   if (clean === '') return '';
 
-  const isInteger = /^-?\d+$/.test(clean);
+  // Reconoce tanto enteros como decimales
+  const isNumber = /^-?\d+(\.\d+)?$/.test(clean);
 
-  if (isInteger) {
+  if (isNumber) {
     return Number(clean);
   }
 
@@ -127,7 +128,7 @@ export default function App() {
     if (val.toString().startsWith('=')) {
       try {
         const { data } = await axios.post(`${API_BASE}/evaluate`, { formula: val });
-        finalVal = Math.round(data.result);
+        finalVal = data.result; // Quitamos el Math.round
       } catch (e) {
         alert("Error en fórmula (Backend)");
         return;
