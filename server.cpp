@@ -47,10 +47,8 @@ int main() {
   std::cout << ">> Recorrido y calculo sobre todos los nodos: " << diff_sum.count() << " segundos." << std::endl;
   std::cout << "--- PRUEBA FINALIZADA (LIMPIANDO...) ---" << std::endl;
   
-  matrix.clear(); // Limpiamos todo para que el usuario empiece de cero
-  
-  std::cout << ">> Matriz lista y vacia para el usuario." << std::endl << std::endl;
-  // ============================================================
+  matrix.clear();
+  std::cout << ">> Servidor listo." << std::endl << std::endl;  // ============================================================
   // CORS middleware
   svr.set_post_routing_handler([](const auto &req, auto &res) {
     res.set_header("Access-Control-Allow-Origin", "*");
