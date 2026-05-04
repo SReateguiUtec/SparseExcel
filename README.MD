@@ -1,12 +1,14 @@
-# <p align="left"><img src="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/layout-template.svg" width="32" height="32" style="filter: invert(58%) sepia(74%) saturate(451%) hue-rotate(92deg) brightness(97%) contrast(91%); vertical-align: middle;" /> Sparse<span style="color: #22c55e;">Excel</span> 3D</p>
+# <img src="content/logo.svg" height="40" />
 
 Este proyecto es un visualizador de una Matriz Dispersa (Sparse Matrix) implementado mediante una **Lista Cruzada** (Cross-Linked List). Incluye un backend en C++ y un frontend moderno en React con visualización 3D y 2D (estilo Excel).
 
 ## 📺 Demo del Proyecto
 
-<video src="SparseMatrixDemo.mp4" width="100%" controls>
-  Tu navegador no soporta el elemento de video.
-</video>
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/6f0a60a4-530f-4d0b-854f-13286eb92966" width="100%" controls>
+    Tu navegador no soporta el elemento de video.
+  </video>
+</div>
 
 *(Si el video no se reproduce, puedes abrirlo directamente en `SparseMatrixDemo.mp4`)*
 
