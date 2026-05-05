@@ -300,14 +300,7 @@ template <typename T> T SparseMatrix<T>::operator()(int r, int c) const {
 
 // Destructor
 template <typename T> SparseMatrix<T>::~SparseMatrix() {
-  for (int i = 0; i < n_rows; ++i) {
-    Node<T> *curr = rows[i];
-    while (curr != nullptr) {
-      Node<T> *temp = curr;
-      curr = curr->next_row;
-      delete temp; // Borramos nodo por nodo recorriendo las filas
-    }
-  }
+  this->clear();
 }
 
 // ============================================================
@@ -859,6 +852,7 @@ double SparseMatrix<T>::evaluate_formula(std::string formula) const {
 }
 
 #endif // SPARSE_MATRIX_
+
 template <typename T>
 void SparseMatrix<T>::clear() {
   for (int i = 0; i < n_rows; ++i) {
