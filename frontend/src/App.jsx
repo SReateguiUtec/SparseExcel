@@ -55,7 +55,7 @@ export default function App() {
   const [input, setInput] = useState({ r: '', c: '', val: '', formula: '' });
   const [loading, setLoading] = useState(false);
 
-  const [gridSize, setGridSize] = useState({ rows: 100, cols: 26 });
+  const [gridSize, setGridSize] = useState({ rows: 100, cols: 52 });
 
   // Grid interaction state
   const [editingCell, setEditingCell] = useState(null); // {r, c}
@@ -488,8 +488,8 @@ export default function App() {
               <div className="flex gap-2">
                 <input
                   type="text"
-                  placeholder="Col (Z)"
-                  maxLength={1}
+                  placeholder="Col (AA)"
+                  maxLength={3}
                   value={input.c}
                   onChange={e => setInput({ ...input, c: e.target.value.toUpperCase() })}
                   className="w-1/3 bg-black/40 border border-white/10 rounded px-3 py-1.5 text-[10px] outline-none focus:border-green-500 text-center font-bold"
@@ -512,8 +512,8 @@ export default function App() {
               <button
                 onClick={async () => {
                   const colStr = input.c.toUpperCase();
-                  if (!/^[A-Z]$/.test(colStr)) {
-                    return alert("La columna debe ser una sola letra de A a Z.");
+                  if (!/^[A-Z]+$/.test(colStr)) {
+                    return alert("La columna debe contener solo letras (ej: A, Z, AA).");
                   }
                   const cIdx = colToIdx(colStr);
                   const rIdx = parseInt(input.r) - 1;

@@ -176,9 +176,8 @@ int SparseMatrix<T>::numeric_count() const {
 
 // Insertamos nodo en posicion (i, j)
 template <typename T> void SparseMatrix<T>::insert(int r, int c, T value) {
-  // Validacion de seguridad estricta para evitar Segmentation Faults (caída del
-  // servidor)
-  if (r < 0 || c < 0 || c >= 26) {
+  // Validacion de seguridad basica
+  if (r < 0 || c < 0) {
     return;
   }
 
