@@ -1,26 +1,27 @@
 #include "httplib.h"
 #include "json.hpp"
 #include "sparse_matrix.h"
-#include <iostream>
-#include <variant>
 #include <chrono>
+#include <iostream>
 #include <random>
+#include <variant>
 
 using json = nlohmann::json;
 using namespace httplib;
 
 int main() {
   using CellValue = std::variant<int, double, char, std::string>;
-  SparseMatrix<CellValue> matrix(1000, 1000); // Matriz más grande para la prueba
+  SparseMatrix<CellValue> matrix(1000,
+                                 1000); // Matriz más grande para la prueba
   Server svr;
 
   // ============================================================
   // BENCHMARK DE RENDIMIENTO
   // ============================================================
   std::cout << "--- INICIANDO PRUEBA DE RENDIMIENTO ---" << std::endl;
-  
+
   auto start_ins = std::chrono::high_resolution_clock::now();
-  
+
   // Insertar 100,000 nodos aleatorios
   int nodos_a_insertar = 100000;
   std::random_device rd;
@@ -34,21 +35,27 @@ int main() {
 
   auto end_ins = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> diff_ins = end_ins - start_ins;
-  
-  std::cout << ">> Insercion de " << nodos_a_insertar << " nodos: " << diff_ins.count() << " segundos." << std::endl;
+
+  std::cout << ">> Insercion de " << nodos_a_insertar
+            << " nodos: " << diff_ins.count() << " segundos." << std::endl;
 
   // Medir tiempo de SUMA TOTAL
   auto start_sum = std::chrono::high_resolution_clock::now();
-  double resultado_suma = matrix.average(); // Usamos average que recorre toda la matriz
+  double resultado_suma =
+      matrix.average(); // Usamos average que recorre toda la matriz
   auto end_sum = std::chrono::high_resolution_clock::now();
-  
+
   std::chrono::duration<double> diff_sum = end_sum - start_sum;
-  
-  std::cout << ">> Recorrido y calculo sobre todos los nodos: " << diff_sum.count() << " segundos." << std::endl;
+
+  std::cout << ">> Recorrido y calculo sobre todos los nodos: "
+            << diff_sum.count() << " segundos." << std::endl;
   std::cout << "--- PRUEBA FINALIZADA (LIMPIANDO...) ---" << std::endl;
-  
+
   matrix.clear();
-  std::cout << ">> Servidor listo." << std::endl << std::endl;  // ============================================================
+  std::cout
+      << ">> Servidor listo." << std::endl
+      << std::
+             endl; // ============================================================
   // CORS middleware
   svr.set_post_routing_handler([](const auto &req, auto &res) {
     res.set_header("Access-Control-Allow-Origin", "*");
@@ -67,86 +74,85 @@ int main() {
 
   // Insert node
   svr.Post("/insert", [&](const Request &req, Response &res) {
-  try {
-    auto body = json::parse(req.body);
+    try {
+      auto body = json::parse(req.body);
 
-    int r = body["r"].get<int>();
-    int c = body["c"].get<int>();
+      int r = body["r"].get<int>();
+      int c = body["c"].get<int>();
 
-    CellValue value;
+      CellValue value;
 
-    if (body["val"].is_number_integer()) {
-      long long temp = body["val"].get<long long>();
-      if (temp > 2147483647 || temp < -2147483648) {
-        value = static_cast<double>(temp);
-      } else {
-        value = static_cast<int>(temp);
-      }
-    }
-    else if (body["val"].is_number_float()) {
-      value = body["val"].get<double>();
-    }
-    else if (body["val"].is_string()) {
-      std::string s = body["val"].get<std::string>();
-
-      if (s.empty()) {
-        value = 0;
-      }
-      else {
-        bool es_numero = true;
-        bool tiene_punto = false;
-
-        for (char ch : s) {
-          if (!std::isdigit(ch) && ch != '-' && ch != '.') {
-            es_numero = false;
-            break;
-          }
-          if (ch == '.') {
-            if (tiene_punto) es_numero = false;
-            tiene_punto = true;
-          }
+      if (body["val"].is_number_integer()) {
+        long long temp = body["val"].get<long long>();
+        if (temp > 2147483647 || temp < -2147483648) {
+          value = static_cast<double>(temp);
+        } else {
+          value = static_cast<int>(temp);
         }
+      } else if (body["val"].is_number_float()) {
+        value = body["val"].get<double>();
+      } else if (body["val"].is_string()) {
+        std::string s = body["val"].get<std::string>();
 
-        if (es_numero) {
-          try {
-            if (tiene_punto) {
-              value = std::stod(s);
-            } else {
-              // Si es un número entero, verificamos si cabe en un int de 32 bits
-              long long temp = std::stoll(s);
-              if (temp > 2147483647 || temp < -2147483648) {
-                value = static_cast<double>(temp); // Si es muy grande, lo guardamos como double
-              } else {
-                value = static_cast<int>(temp); // Si cabe, lo guardamos como int
-              }
+        if (s.empty()) {
+          value = 0;
+        } else {
+          bool es_numero = true;
+          bool tiene_punto = false;
+
+          for (char ch : s) {
+            if (!std::isdigit(ch) && ch != '-' && ch != '.') {
+              es_numero = false;
+              break;
             }
-          } catch (...) {
-            value = s; // Si falla la conversión (ej: número demasiado grande incluso para long long), como string
+            if (ch == '.') {
+              if (tiene_punto)
+                es_numero = false;
+              tiene_punto = true;
+            }
+          }
+
+          if (es_numero) {
+            try {
+              if (tiene_punto) {
+                value = std::stod(s);
+              } else {
+                // Si es un número entero, verificamos si cabe en un int de 32
+                // bits
+                long long temp = std::stoll(s);
+                if (temp > 2147483647 || temp < -2147483648) {
+                  value = static_cast<double>(
+                      temp); // Si es muy grande, lo guardamos como double
+                } else {
+                  value =
+                      static_cast<int>(temp); // Si cabe, lo guardamos como int
+                }
+              }
+            } catch (...) {
+              value = s; // Si falla la conversión (ej: número demasiado grande
+                         // incluso para long long), como string
+            }
+          } else if (s.size() == 1) {
+            value = s[0]; // char
+          } else {
+            value = s; // string
           }
         }
-        else if (s.size() == 1) {
-          value = s[0];   // char
-        }
-        else {
-          value = s;      // string
-        }
+      } else {
+        res.status = 400;
+        res.set_content(json({{"error", "Valor no valido"}}).dump(),
+                        "application/json");
+        return;
       }
-    }
-    else {
-      res.status = 400;
-      res.set_content(json({{"error", "Valor no valido"}}).dump(), "application/json");
-      return;
-    }
 
-    matrix.insert(r, c, value);
+      matrix.insert(r, c, value);
 
-    res.set_content(json({{"status", "ok"}}).dump(), "application/json");
-  }
-  catch (const std::exception &e) {
-    res.status = 500;
-    res.set_content(json({{"error", e.what()}}).dump(), "application/json");
-  }
-});
+      res.set_content(json({{"status", "ok"}}).dump(), "application/json");
+    } catch (const std::exception &e) {
+      res.status = 500;
+      res.set_content(json({{"error", e.what()}}).dump(), "application/json");
+    }
+  });
 
   // Modify node
   svr.Post("/modify", [&](const Request &req, Response &res) {
@@ -154,14 +160,18 @@ int main() {
       auto body = json::parse(req.body);
       int r = body["r"].get<int>();
       int c = body["c"].get<int>();
-      
+
       CellValue value;
-      if (body["val"].is_number_integer()) value = body["val"].get<int>();
-      else if (body["val"].is_number_float()) value = body["val"].get<double>();
-      else value = body["val"].get<std::string>();
+      if (body["val"].is_number_integer())
+        value = body["val"].get<int>();
+      else if (body["val"].is_number_float())
+        value = body["val"].get<double>();
+      else
+        value = body["val"].get<std::string>();
 
       matrix.modify(r, c, value);
-      res.set_content(json({{"status", "ok", "method", "modify"}}).dump(), "application/json");
+      res.set_content(json({{"status", "ok", "method", "modify"}}).dump(),
+                      "application/json");
     } catch (const std::exception &e) {
       res.status = 500;
       res.set_content(json({{"error", e.what()}}).dump(), "application/json");
@@ -187,7 +197,7 @@ int main() {
     int r = body["r"];
     int c = body["c"];
     matrix.remove_range(r, c, r,
-                        c); // Usamos tu funcion de rango para una sola celda
+                        c); // Usamos funcion de rango para una sola celda
     res.set_content(json({"status", "ok"}).dump(), "application/json");
   });
 
@@ -210,6 +220,13 @@ int main() {
     auto body = json::parse(req.body);
     matrix.remove_range(body["r1"], body["c1"], body["r2"], body["c2"]);
     res.set_content(json({"status", "ok"}).dump(), "application/json");
+  });
+
+  // Remove single node
+  svr.Post("/remove_node", [&](const Request &req, Response &res) {
+    auto body = json::parse(req.body);
+    matrix.remove(body["r"].get<int>(), body["c"].get<int>());
+    res.set_content(json({{"status", "ok"}}).dump(), "application/json");
   });
 
   // Sum Range
@@ -263,6 +280,26 @@ int main() {
   svr.Post("/avg_col", [&](const Request &req, Response &res) {
     auto body = json::parse(req.body);
     res.set_content(json({{"result", matrix.avg_col(body["c"])}}).dump(),
+                    "application/json");
+  });
+  svr.Post("/max_row", [&](const Request &req, Response &res) {
+    auto body = json::parse(req.body);
+    res.set_content(json({{"result", matrix.max_row(body["r"])}}).dump(),
+                    "application/json");
+  });
+  svr.Post("/min_row", [&](const Request &req, Response &res) {
+    auto body = json::parse(req.body);
+    res.set_content(json({{"result", matrix.min_row(body["r"])}}).dump(),
+                    "application/json");
+  });
+  svr.Post("/max_col", [&](const Request &req, Response &res) {
+    auto body = json::parse(req.body);
+    res.set_content(json({{"result", matrix.max_col(body["c"])}}).dump(),
+                    "application/json");
+  });
+  svr.Post("/min_col", [&](const Request &req, Response &res) {
+    auto body = json::parse(req.body);
+    res.set_content(json({{"result", matrix.min_col(body["c"])}}).dump(),
                     "application/json");
   });
 

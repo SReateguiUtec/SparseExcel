@@ -67,6 +67,7 @@ export default function App() {
 
   const [delRow, setDelRow] = useState('');
   const [delCol, setDelCol] = useState('');
+  const [delCell, setDelCell] = useState({ r: '', c: '' });
   const [debugNode, setDebugNode] = useState(null); // Para el popup de memoria
   const [delRange, setDelRange] = useState('');
   const [opLog, setOpLog] = useState([]);
@@ -182,17 +183,12 @@ export default function App() {
     const range = analysisRange.trim().toUpperCase();
 
     if (range.includes(':')) {
+      // Rango A1:C5 → endpoints de rango (backend calcula)
       const parts = range.split(':');
       const start = parseCell(parts[0]);
       const end = parseCell(parts[1]);
       if (!start || !end) return;
-      const inRange = nodes.filter(n =>
-        n.r >= Math.min(start.r, end.r) && n.r <= Math.max(start.r, end.r) &&
-        n.c >= Math.min(start.c, end.c) && n.c <= Math.max(start.c, end.c)
-      );
-      if (inRange.length === 0) { setAnalysisResult(0); setLastOp(op); return; }
-      const vals = inRange.map(n => n.val);
-      let res = 0;
+
       const rangeData = {
         r1: Math.min(start.r, end.r),
         c1: Math.min(start.c, end.c),
@@ -208,57 +204,83 @@ export default function App() {
         else if (op === 'MIN') endpoint = '/min_range';
 
         const { data } = await axios.post(`${API_BASE}${endpoint}`, rangeData);
-        res = data.result;
+        setAnalysisResult(Number(data.result).toFixed(2));
+        setLastOp(op);
       } catch (e) {
         console.error(e);
-        res = 0;
+        setAnalysisResult(0);
+        setLastOp(op);
       }
 
-      setAnalysisResult(Number(res).toFixed(2));
-      setLastOp(op);
     } else if (/^[A-Z]+$/.test(range)) {
+      // Columna
       const cIdx = colToIdx(range);
       try {
-        const colNodes = nodes.filter(n => n.c === cIdx);
-        if (colNodes.length === 0) { setAnalysisResult(0); return; }
-        const vals = colNodes
-            .map(n => Number(n.val))
-            .filter(v => !isNaN(v));
-        if (vals.length === 0) {
-          setAnalysisResult(0);
-          setLastOp(`${op} COL ${range}`);
-          return;
+        let endpoint = '';
+        let body = {};
+        if (op === 'SUMA') {
+          endpoint = '/sum_col';
+          body = { c: cIdx };
+        } else if (op === 'PROMEDIO') {
+          endpoint = '/avg_col';
+          body = { c: cIdx };
+        } else if (op === 'MAX') {
+          endpoint = '/max_col';
+          body = { c: cIdx };
+        } else if (op === 'MIN') {
+          endpoint = '/min_col';
+          body = { c: cIdx };
         }
-        let res = 0;
-        if (op === 'SUMA') res = vals.reduce((a, b) => a + b, 0);
-        else if (op === 'PROMEDIO') res = vals.reduce((a, b) => a + b, 0) / vals.length;
-        else if (op === 'MAX') res = Math.max(...vals);
-        else if (op === 'MIN') res = Math.min(...vals);
-        setAnalysisResult(res.toFixed(2));
+        const { data } = await axios.post(`${API_BASE}${endpoint}`, body);
+        setAnalysisResult(Number(data.result).toFixed(2));
         setLastOp(`${op} COL ${range}`);
-      } catch (e) { alert("Error"); }
+      } catch (e) {
+        console.error(e);
+        setAnalysisResult(0);
+        setLastOp(`${op} COL ${range}`);
+      }
+
     } else if (/^[0-9]+$/.test(range)) {
+      // Fila entera
       const rIdx = parseInt(range) - 1;
       try {
-        const rowNodes = nodes.filter(n => n.r === rIdx);
-        if (rowNodes.length === 0) { setAnalysisResult(0); return; }
-        const vals = rowNodes
-            .map(n => Number(n.val))
-            .filter(v => !isNaN(v));
-        if (vals.length === 0) {
-          setAnalysisResult(0);
-          setLastOp(`${op} COL ${range}`);
-          return;
+        let endpoint = '';
+        let body = {};
+        if (op === 'SUMA') {
+          endpoint = '/sum_row';
+          body = { r: rIdx };
+        } else if (op === 'PROMEDIO') {
+          endpoint = '/avg_row';
+          body = { r: rIdx };
+        } else if (op === 'MAX') {
+          endpoint = '/max_row';
+          body = { r: rIdx };
+        } else if (op === 'MIN') {
+          endpoint = '/min_row';
+          body = { r: rIdx };
         }
-        let res = 0;
-        if (op === 'SUMA') res = vals.reduce((a, b) => a + b, 0);
-        else if (op === 'PROMEDIO') res = vals.reduce((a, b) => a + b, 0) / vals.length;
-        else if (op === 'MAX') res = Math.max(...vals);
-        else if (op === 'MIN') res = Math.min(...vals);
-        setAnalysisResult(res.toFixed(2));
+        const { data } = await axios.post(`${API_BASE}${endpoint}`, body);
+        setAnalysisResult(Number(data.result).toFixed(2));
         setLastOp(`${op} ROW ${range}`);
-      } catch (e) { alert("Error"); }
+      } catch (e) {
+        console.error(e);
+        setAnalysisResult(0);
+        setLastOp(`${op} ROW ${range}`);
+      }
     }
+  };
+
+  const removeNode = async () => {
+    const colStr = delCell.c.toUpperCase();
+    if (!/^[A-Z]+$/.test(colStr) || delCell.r === '') return alert('Usa formato Col: B, Row: 5');
+    const cIdx = colToIdx(colStr);
+    const rIdx = parseInt(delCell.r) - 1;
+    try {
+      await axios.post(`${API_BASE}/remove_node`, { r: rIdx, c: cIdx });
+      setDelCell({ r: '', c: '' });
+      setOpLog(prev => [{ type: 'delete', cell: `${colStr}${delCell.r}`, time: new Date().toLocaleTimeString() }, ...prev].slice(0, 8));
+      fetchData();
+    } catch (e) { alert('Error al eliminar celda'); }
   };
 
   const removeRow = async () => {
@@ -548,6 +570,11 @@ export default function App() {
               <div className="flex gap-2">
                 <input type="text" placeholder="Col (ej: B)" value={delCol} onChange={e => setDelCol(e.target.value)} className="w-1/2 bg-black/40 border border-white/10 rounded px-3 py-1.5 text-xs outline-none focus:border-red-500" />
                 <button onClick={removeCol} className="flex-1 bg-red-500/10 hover:bg-red-500 border border-red-500/30 text-red-500 hover:text-white text-[8px] font-black rounded transition-all">ELIMINAR COLUMNA</button>
+              </div>
+              <div className="flex gap-2">
+                <input type="text" placeholder="Col (ej: B)" value={delCell.c} onChange={e => setDelCell({ ...delCell, c: e.target.value.toUpperCase() })} className="w-1/3 bg-black/40 border border-white/10 rounded px-3 py-1.5 text-xs outline-none focus:border-red-500 text-center font-bold" />
+                <input type="number" placeholder="Row (ej: 5)" value={delCell.r} onChange={e => setDelCell({ ...delCell, r: e.target.value })} className="w-1/3 bg-black/40 border border-white/10 rounded px-3 py-1.5 text-xs outline-none focus:border-red-500 text-center font-bold" />
+                <button onClick={removeNode} className="flex-1 bg-red-500/20 hover:bg-red-500 border border-red-500/30 text-red-400 hover:text-white text-[8px] font-black rounded transition-all">ELIMINAR CELDA</button>
               </div>
               <div className="space-y-2">
                 <input type="text" placeholder="Rango (A1:C5)" value={delRange} onChange={e => setDelRange(e.target.value.toUpperCase())} className="w-full bg-black/40 border border-white/10 rounded px-3 py-1.5 text-xs outline-none focus:border-red-500" />

@@ -42,6 +42,7 @@ public:
   // Operaciones basicas
   void insert(int r, int c, T value);
   void modify(int r, int c, T new_value);
+  void remove(int r, int c);
   T get_value(int r, int c) const;
   T operator()(int r, int c) const; // Sobrecarga
 
@@ -59,6 +60,10 @@ public:
 
   double avg_row(int r) const;
   double avg_col(int c) const;
+  double max_row(int r) const;
+  double min_row(int r) const;
+  double max_col(int c) const;
+  double min_col(int c) const;
   double average() const;
   double sum_range(int r1, int c1, int r2, int c2) const;
   double avg_range(int r1, int c1, int r2, int c2) const;
@@ -272,6 +277,38 @@ template <typename T> void SparseMatrix<T>::modify(int r, int c, T new_value) {
   } // Caso contrario insertamos el nuevo nodo con su valor en la posicion (i,j)
 }
 
+template<typename T>
+void SparseMatrix<T>::remove(int r, int c) {
+  if (r < 0 || c < 0 || r >= n_rows || c >= n_cols) {return;}
+
+  // Buscar el nodo en la fila guardando el nodo anterior
+  Node<T>* curr = rows[r];
+  Node<T>* prev_row = nullptr;
+  while (curr != nullptr && curr->col < c) {
+    prev_row = curr;
+    curr = curr->next_row;
+  }
+
+  // Si no existe el nodo en esa posicion, no hay nada que borrar
+  if (curr == nullptr || curr->col != c) return;
+
+  // Reconectar la fila
+  if (prev_row == nullptr) {rows[r] = curr->next_row;} // era el primer nodo de la fila
+  else {prev_row->next_row = curr->next_row;}
+
+  // Reconectar la columna
+  if (cols[c] == curr) {
+    cols[c] = curr->next_col; // era el primer nodo de la columna
+  } else {
+    Node<T>* prev_col = cols[c];
+    while (prev_col->next_col != curr) {
+      prev_col = prev_col->next_col;
+      prev_col->next_col = curr->next_col;
+    }
+  }
+  delete curr;
+}
+
 // Obtenemos el valor de la posicion (i, j)
 template <typename T>
 T SparseMatrix<T>::get_value(int r, int c) const {
@@ -431,6 +468,78 @@ void SparseMatrix<T>::remove_range(int r1, int c1, int r2, int c2) {
 // Operaciones de Agregacion
 // ============================================================
 
+// Maximo de fila
+template <typename T>
+double SparseMatrix<T>::max_row(int r) const {
+  if (r < 0 || r >= n_rows) return 0;
+
+  double max = 0;
+  bool first = true;
+  Node<T>* curr = rows[r];
+  while (curr != nullptr) {
+    if (is_numeric_generic(curr->value)) {
+      double v = to_double_generic(curr->value);
+      if (first || v > max) { max = v; first = false; }
+    }
+    curr = curr->next_row;
+  }
+  return first ? 0 : max;
+}
+
+// Minimo de fila
+template <typename T>
+double SparseMatrix<T>::min_row(int r) const {
+  if (r < 0 || r >= n_rows) return 0;
+
+  double min = 0;
+  bool first = true;
+  Node<T>* curr = rows[r];
+  while (curr != nullptr) {
+    if (is_numeric_generic(curr->value)) {
+      double v = to_double_generic(curr->value);
+      if (first || v < min) { min = v; first = false; }
+    }
+    curr = curr->next_row;
+  }
+  return first ? 0 : min;
+}
+
+// Maximo de columna
+template <typename T>
+double SparseMatrix<T>::max_col(int c) const {
+  if (c < 0 || c >= n_cols) return 0;
+
+  double max = 0;
+  bool first = true;
+  Node<T>* curr = cols[c];
+  while (curr != nullptr) {
+    if (is_numeric_generic(curr->value)) {
+      double v = to_double_generic(curr->value);
+      if (first || v > max) { max = v; first = false; }
+    }
+    curr = curr->next_col;
+  }
+  return first ? 0 : max;
+}
+
+// Minimo de columna
+template <typename T>
+double SparseMatrix<T>::min_col(int c) const {
+  if (c < 0 || c >= n_cols) return 0;
+
+  double min = 0;
+  bool first = true;
+  Node<T>* curr = cols[c];
+  while (curr != nullptr) {
+    if (is_numeric_generic(curr->value)) {
+      double v = to_double_generic(curr->value);
+      if (first || v < min) { min = v; first = false; }
+    }
+    curr = curr->next_col;
+  }
+  return first ? 0 : min;
+}
+
 // Suma de fila especifica
 template <typename T>
 double SparseMatrix<T>::sum_row(int r) const {
@@ -492,6 +601,7 @@ double SparseMatrix<T>::avg_row(int r) const {
 
   return count > 0 ? total / count : 0;
 }
+
 // Promedio de columna
 template <typename T>
 double SparseMatrix<T>::avg_col(int c) const {
@@ -634,7 +744,7 @@ double SparseMatrix<T>::max_range(int r1, int c1, int r2, int c2) const {
   return first ? 0 : max_val;
 }
 
-//Promedio
+// Promedio
 template <typename T>
 double SparseMatrix<T>::average() const {
   double total = 0;
