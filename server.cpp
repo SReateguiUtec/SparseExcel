@@ -11,7 +11,7 @@ using namespace httplib;
 
 int main() {
   using CellValue = std::variant<int, double, char, std::string>;
-  SparseMatrix<CellValue> matrix(1000,
+  SparseMatrix matrix(1000,
                                  1000); // Matriz más grande para la prueba
   Server svr;
 
