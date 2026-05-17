@@ -9,7 +9,6 @@ Este proyecto es un visualizador de una Matriz Dispersa (Sparse Matrix) implemen
     Tu navegador no soporta el elemento de video.
   </video>
 </div>
-*(Si el video no se reproduce, puedes abrirlo directamente en `SparseMatrixDemo.mp4`)*
 
 <br>
 
