@@ -1,4 +1,4 @@
-import React, { useRef, useMemo, useState } from 'react';
+import { useRef, useMemo, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Text, Float } from '@react-three/drei';
 import { EffectComposer, Bloom, ChromaticAberration } from '@react-three/postprocessing';
@@ -7,47 +7,99 @@ import * as THREE from 'three';
 import { RotateCcw, Activity } from 'lucide-react';
 
 const NODE_WIDTH = 3.2;
-const NODE_HEIGHT = 1.8;
-const CELL_W = NODE_WIDTH / 4;
-const HALF_H = NODE_HEIGHT / 2;
+const NODE_HEIGHT = 2.0;
+
 const SPACING = 5.5;
-const NODE_DEPTH = 2.0;
+const NODE_DEPTH = 1.6;
 
-const NODE_COLOR = '#00f3ff'; // cyan  — nodos
-const ROW_COLOR = '#ef4444'; // rojo  — flechas horizontales
-const COL_COLOR = '#22c55e'; // verde — flechas verticales
-const HEADER_COLOR = '#475569'; // gris pizarra — cabeceras de fila y columna
+// Layout fractions
+const TOP_FRAC = 0.42;  // value section takes 42% of height
+const BOT_FRAC = 0.58;  // pointer section takes 58%
+const TOP_H = NODE_HEIGHT * TOP_FRAC;
+const BOT_H = NODE_HEIGHT * BOT_FRAC;
+const TOP_CENTER_Y =  (NODE_HEIGHT / 2) - (TOP_H / 2);
+const BOT_CENTER_Y = -(NODE_HEIGHT / 2) + (BOT_H / 2);
+const DIV_Y        =  (NODE_HEIGHT / 2) - TOP_H;        // horizontal divider Y
+const SEC_W = NODE_WIDTH / 3;                            // each of 3 bottom columns
 
-// Glowing tube arrow between two points
-function GlowArrow({ start, end, color }) {
-  const curve = useMemo(() => {
+// World-space port offsets (relative to node center)
+const LEFT_PORT_X  = -NODE_WIDTH / 2 + SEC_W / 2;       // ≈ -1.067
+const RIGHT_PORT_X =  NODE_WIDTH / 2 - SEC_W / 2;        // ≈ +1.067
+const ARROW_Z      =  NODE_DEPTH / 2 + 0.12;             // in front of node face
+
+const NODE_COLOR   = '#00f3ff';
+const ROW_COLOR    = '#ef4444';
+const COL_COLOR    = '#22c55e';
+const HEADER_COLOR = '#475569';
+
+// ─── Orthogonal arrow ───────────────────────────────────────────────────────────
+// Uses TWO independent straight-tube segments for true 90-degree corners.
+function OrthoArrow({ start, end, color }) {
+  const RADIUS = 0.032;
+
+  // Decompose into one or two straight segments
+  const { seg1, seg2, lastDir } = useMemo(() => {
     const s = new THREE.Vector3(...start);
     const e = new THREE.Vector3(...end);
-    return new THREE.LineCurve3(s, e);
+    const dx = Math.abs(e.x - s.x);
+    const dy = Math.abs(e.y - s.y);
+
+    if (dx < 0.04 || dy < 0.04) {
+      // Already axis-aligned — single segment
+      const d = new THREE.Vector3().subVectors(e, s).normalize();
+      return { seg1: [s, e], seg2: null, lastDir: d };
+    }
+
+    // L-shape: horizontal first (for rows) vs vertical first (for cols)
+    // Decide by which delta is larger
+    const corner = dx >= dy
+      ? new THREE.Vector3(e.x, s.y, s.z)   // move X first
+      : new THREE.Vector3(s.x, e.y, s.z);  // move Y first
+
+    const d = new THREE.Vector3().subVectors(e, corner).normalize();
+    return { seg1: [s, corner], seg2: [corner, e], lastDir: d };
   }, [start, end]);
 
-  const tubeGeo = useMemo(() => new THREE.TubeGeometry(curve, 1, 0.045, 6, false), [curve]);
-  const direction = useMemo(() => new THREE.Vector3(...end).sub(new THREE.Vector3(...start)).normalize(), [start, end]);
-  const quaternion = useMemo(() => new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction), [direction]);
-  const arrowPos = useMemo(() => new THREE.Vector3(...end).sub(direction.clone().multiplyScalar(0.18)), [end, direction]);
+  const geo1 = useMemo(() => {
+    const curve = new THREE.LineCurve3(seg1[0], seg1[1]);
+    return new THREE.TubeGeometry(curve, 1, RADIUS, 6, false);
+  }, [seg1]);
+
+  const geo2 = useMemo(() => {
+    if (!seg2) return null;
+    const curve = new THREE.LineCurve3(seg2[0], seg2[1]);
+    return new THREE.TubeGeometry(curve, 1, RADIUS, 6, false);
+  }, [seg2]);
+
+  // Arrowhead at the tip of the final segment
+  const quat = useMemo(() =>
+    new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), lastDir),
+  [lastDir]);
+  const tipPos = useMemo(() =>
+    new THREE.Vector3(...end).sub(lastDir.clone().multiplyScalar(0.13)),
+  [end, lastDir]);
 
   return (
     <group>
-      <mesh geometry={tubeGeo}>
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={3} transparent opacity={0.85} />
+      <mesh geometry={geo1}>
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={5} transparent opacity={0.95} />
       </mesh>
-      <mesh position={arrowPos} quaternion={quaternion}>
-        <coneGeometry args={[0.1, 0.28, 8]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={4} />
+      {geo2 && (
+        <mesh geometry={geo2}>
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={5} transparent opacity={0.95} />
+        </mesh>
+      )}
+      <mesh position={tipPos} quaternion={quat}>
+        <coneGeometry args={[0.1, 0.22, 6]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={6} />
       </mesh>
     </group>
   );
 }
 
-// Animated node that scales in on mount
+// ─── Node ────────────────────────────────────────────────────────────────────
 function AnimatedNode({ position, value, r, c, color }) {
   const meshRef = useRef();
-  const [scale, setScale] = useState(0.01);
   const targetScale = useRef(1);
 
   useFrame((_, delta) => {
@@ -58,91 +110,185 @@ function AnimatedNode({ position, value, r, c, color }) {
     }
   });
 
-  // Trigger animation on mount
-  useMemo(() => { targetScale.current = 1; }, []);
+  useEffect(() => { targetScale.current = 1; }, []);
+
+  const faceZ = NODE_DEPTH / 2 + 0.012;
+  const leftPortX  = -NODE_WIDTH / 2 + SEC_W / 2;
+  const rightPortX =  NODE_WIDTH / 2 - SEC_W / 2;
 
   return (
     <group ref={meshRef} position={position} scale={0.01}>
-      {/* Main body */}
+
+      {/* ── Body ── */}
       <mesh castShadow>
         <boxGeometry args={[NODE_WIDTH, NODE_HEIGHT, NODE_DEPTH]} />
         <meshPhysicalMaterial
-          color="#0f172a"
+          color="#06101f"
           emissive={color}
-          emissiveIntensity={0.12}
-          metalness={0.6}
-          roughness={0.2}
+          emissiveIntensity={0.07}
+          metalness={0.55}
+          roughness={0.22}
           transparent
-          opacity={0.92}
+          opacity={0.96}
         />
       </mesh>
 
-      {/* Glowing border frame */}
+      {/* ── Glowing outline ── */}
       <lineSegments>
         <edgesGeometry args={[new THREE.BoxGeometry(NODE_WIDTH, NODE_HEIGHT, NODE_DEPTH)]} />
         <lineBasicMaterial color={color} />
       </lineSegments>
 
-      {/* Top half divider */}
-      <mesh position={[0, 0, NODE_DEPTH / 2 + 0.001]}>
-        <planeGeometry args={[NODE_WIDTH, 0.012]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={3} />
+      {/* ── Horizontal divider (value | pointers) ── */}
+      <mesh position={[0, DIV_Y, faceZ]}>
+        <planeGeometry args={[NODE_WIDTH, 0.02]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={5} />
       </mesh>
 
-      {/* Vertical dividers in bottom half */}
-      {[1, 2, 3].map(i => (
-        <mesh key={i} position={[-NODE_WIDTH / 2 + i * CELL_W, -HALF_H / 2, NODE_DEPTH / 2 + 0.001]}>
-          <planeGeometry args={[0.012, HALF_H]} />
-          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.5} transparent opacity={0.5} />
+      {/* ── Vertical dividers: at ±SEC_W/2 (create 3 bottom cells) ── */}
+      {[-SEC_W / 2, SEC_W / 2].map((xOff, i) => (
+        <mesh key={i} position={[xOff, BOT_CENTER_Y, faceZ]}>
+          <planeGeometry args={[0.018, BOT_H]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={2.5} transparent opacity={0.65} />
         </mesh>
       ))}
 
-      {/* VALUE */}
-      <Text position={[0, HALF_H / 2, NODE_DEPTH / 2 + 0.05]} fontSize={0.5} color="#ffffff" font={undefined} anchorX="center" anchorY="middle">
+      {/* ── VALUE label (top section) ── */}
+      <Text
+        position={[0, TOP_CENTER_Y, faceZ + 0.04]}
+        fontSize={0.55}
+        color="#e2e8f0"
+        anchorX="center"
+        anchorY="middle"
+        font={undefined}
+      >
         {value}
       </Text>
 
-      {/* Row index */}
-      <Text position={[-CELL_W / 2 - 0.05, -HALF_H / 2, NODE_DEPTH / 2 + 0.05]} fontSize={0.24} color="#94a3b8" anchorX="center" anchorY="middle">
+      {/* ── Row index ── */}
+      <Text
+        position={[-0.16, BOT_CENTER_Y, faceZ + 0.04]}
+        fontSize={0.22}
+        color="#7dd3fc"
+        anchorX="center"
+        anchorY="middle"
+      >
         {r}
       </Text>
 
-      {/* Col index */}
-      <Text position={[CELL_W / 2, -HALF_H / 2, NODE_DEPTH / 2 + 0.05]} fontSize={0.24} color="#94a3b8" anchorX="center" anchorY="middle">
+      {/* ── Col index ── */}
+      <Text
+        position={[0.16, BOT_CENTER_Y, faceZ + 0.04]}
+        fontSize={0.22}
+        color="#86efac"
+        anchorX="center"
+        anchorY="middle"
+      >
         {c}
       </Text>
 
-      {/* Green diamond port (col pointer) */}
-      <mesh position={[-1.5 * CELL_W, -HALF_H / 2, NODE_DEPTH / 2 + 0.07]} rotation={[0, 0, Math.PI / 4]}>
-        <boxGeometry args={[0.14, 0.14, 0.06]} />
-        <meshStandardMaterial color="#22c55e" emissive="#22c55e" emissiveIntensity={5} />
+      {/* ── LEFT ◆ — next_row pointer (red) ── */}
+      <mesh position={[leftPortX, BOT_CENTER_Y, faceZ + 0.06]} rotation={[0, 0, Math.PI / 4]}>
+        <boxGeometry args={[0.2, 0.2, 0.07]} />
+        <meshStandardMaterial color={ROW_COLOR} emissive={ROW_COLOR} emissiveIntensity={7} />
       </mesh>
 
-      {/* Red diamond port (row pointer) */}
-      <mesh position={[NODE_WIDTH / 2, 0, NODE_DEPTH / 2 + 0.07]} rotation={[0, 0, Math.PI / 4]}>
-        <boxGeometry args={[0.14, 0.14, 0.06]} />
-        <meshStandardMaterial color="#ef4444" emissive="#ef4444" emissiveIntensity={5} />
+      {/* ── RIGHT ◆ — next_col pointer (green) ── */}
+      <mesh position={[rightPortX, BOT_CENTER_Y, faceZ + 0.06]} rotation={[0, 0, Math.PI / 4]}>
+        <boxGeometry args={[0.2, 0.2, 0.07]} />
+        <meshStandardMaterial color={COL_COLOR} emissive={COL_COLOR} emissiveIntensity={7} />
       </mesh>
+
     </group>
   );
 }
 
-// Row / Col header
+// Row / Col header — same linked-list node shape as data nodes
 function HeaderNode({ position, label, type, color }) {
+  const W = NODE_WIDTH;
+  const H = NODE_HEIGHT;
+  const D = NODE_DEPTH;
+
+  const faceZ    = D / 2 + 0.012;
+  const topCY    = TOP_CENTER_Y;
+  const botCY    = BOT_CENTER_Y;
+  const divY_h   = DIV_Y;
+  const sW       = SEC_W;
+
+  // Active port: row headers point right (◆ red), col headers point down (◆ green)
+  const portColor = type === 'row' ? ROW_COLOR : COL_COLOR;
+  // Port sits in the RIGHT third of the bottom row
+  const portX = W / 2 - sW / 2;
+
   return (
-    <Float speed={1.5} rotationIntensity={0} floatIntensity={0.3}>
+    <Float speed={1.2} rotationIntensity={0} floatIntensity={0.25}>
       <group position={position}>
+
+        {/* Body */}
         <mesh>
-          <boxGeometry args={[2.8, 0.9, 1.2]} />
-          <meshPhysicalMaterial color={color} emissive={color} emissiveIntensity={0.3} transparent opacity={0.35} metalness={0.7} roughness={0.15} />
+          <boxGeometry args={[W, H, D]} />
+          <meshPhysicalMaterial
+            color="#0c1a2e"
+            emissive={color}
+            emissiveIntensity={0.18}
+            metalness={0.65}
+            roughness={0.2}
+            transparent
+            opacity={0.82}
+          />
         </mesh>
+
+        {/* Glowing outline */}
         <lineSegments>
-          <edgesGeometry args={[new THREE.BoxGeometry(2.8, 0.9, 1.2)]} />
+          <edgesGeometry args={[new THREE.BoxGeometry(W, H, D)]} />
           <lineBasicMaterial color={color} />
         </lineSegments>
-        <Text position={[0, 0, 0.65]} fontSize={0.28} color={color} anchorX="center" anchorY="middle">
+
+        {/* Horizontal divider */}
+        <mesh position={[0, divY_h, faceZ]}>
+          <planeGeometry args={[W, 0.022]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={5} />
+        </mesh>
+
+        {/* Vertical dividers — create 3 bottom cells */}
+        {[-sW / 2, sW / 2].map((xOff, i) => (
+          <mesh key={i} position={[xOff, botCY, faceZ]}>
+            <planeGeometry args={[0.018, BOT_H]} />
+            <meshStandardMaterial color={color} emissive={color} emissiveIntensity={2.5} transparent opacity={0.55} />
+          </mesh>
+        ))}
+
+        {/* Label in top section */}
+        <Text
+          position={[0, topCY, faceZ + 0.04]}
+          fontSize={0.32}
+          color={color}
+          anchorX="center"
+          anchorY="middle"
+          font={undefined}
+        >
           {label}
         </Text>
+
+        {/* Index number in center-bottom cell */}
+        <Text
+          position={[0, botCY, faceZ + 0.04]}
+          fontSize={0.24}
+          color="#cbd5e1"
+          anchorX="center"
+          anchorY="middle"
+        >
+          {type === 'row'
+            ? label.replace('Fila ', '')
+            : label.replace('Col ', '')}
+        </Text>
+
+        {/* Active pointer diamond — right cell */}
+        <mesh position={[portX, botCY, faceZ + 0.06]} rotation={[0, 0, Math.PI / 4]}>
+          <boxGeometry args={[0.2, 0.2, 0.07]} />
+          <meshStandardMaterial color={portColor} emissive={portColor} emissiveIntensity={7} />
+        </mesh>
+
       </group>
     </Float>
   );
@@ -322,28 +468,30 @@ export default function Matrix3D({ nodes, activeCell, gridSize }) {
         {nodes.map((node, i) => {
           const nodePos = [node.c * SPACING * 1.5, -node.r * SPACING, 0];
 
-          // Row arrow (red)
+          // ── Row arrow (red): right ◆ of prev → left ◆ of this node ──
           const rowNodes = nodes.filter(n => n.r === node.r).sort((a, b) => a.c - b.c);
           const rIdx = rowNodes.findIndex(n => n.c === node.c);
+          const rowY = nodePos[1] + BOT_CENTER_Y;
           const startR = rIdx === 0
-            ? [startX + 1.4, nodePos[1], 0]
-            : [rowNodes[rIdx - 1].c * SPACING * 1.5 + NODE_WIDTH / 2, nodePos[1], 0];
-          const endR = [nodePos[0] - NODE_WIDTH / 2, nodePos[1], 0];
+            ? [startX + RIGHT_PORT_X, rowY, ARROW_Z]
+            : [rowNodes[rIdx - 1].c * SPACING * 1.5 + RIGHT_PORT_X, rowY, ARROW_Z];
+          const endR = [nodePos[0] + LEFT_PORT_X, rowY, ARROW_Z];
 
-          // Col arrow (green)
+          // ── Col arrow (green): bottom of prev → top of this node ──
           const colNodes = nodes.filter(n => n.c === node.c).sort((a, b) => a.r - b.r);
           const cIdx = colNodes.findIndex(n => n.r === node.r);
-          const targetX = nodePos[0] - 1.5 * CELL_W;
+          const colX = nodePos[0] + LEFT_PORT_X;
           const startC = cIdx === 0
-            ? [targetX, startY - 0.45, 0]
-            : [targetX, -colNodes[cIdx - 1].r * SPACING - NODE_HEIGHT / 2, 0];
-          const endC = [targetX, nodePos[1] + NODE_HEIGHT / 2, 0];
+            ? [colX, startY - NODE_HEIGHT / 2, ARROW_Z]
+            : [colNodes[cIdx - 1].c * SPACING * 1.5 + LEFT_PORT_X,
+               -colNodes[cIdx - 1].r * SPACING - NODE_HEIGHT / 2, ARROW_Z];
+          const endC = [colX, nodePos[1] + NODE_HEIGHT / 2, ARROW_Z];
 
           return (
             <group key={`${node.r}-${node.c}-${i}`}>
               <AnimatedNode position={nodePos} value={node.val} r={node.r} c={node.c} color={NODE_COLOR} />
-              <GlowArrow start={startR} end={endR} color={ROW_COLOR} />
-              <GlowArrow start={startC} end={endC} color={COL_COLOR} />
+              <OrthoArrow start={startR} end={endR} color={ROW_COLOR} />
+              <OrthoArrow start={startC} end={endC} color={COL_COLOR} />
             </group>
           );
         })}
